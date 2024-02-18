@@ -34,7 +34,7 @@ interface Comment {
   created_at: string;
 }
 
-const Feed: React.FC = () => {
+const MyPosts = () => {
   const [posts, setPosts] = useState<any[]>([]);
   const [user, setUser] = useState<any>();
   const [commentModalVisible, setCommentModalVisible] =
@@ -68,7 +68,10 @@ const Feed: React.FC = () => {
 
   useEffect(() => {
     const fetchPosts = async () => {
-      const { data, error } = await supabase.from("posts").select("*");
+      const { data, error } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("user_uid", user?.id);
       if (error) {
         console.error("Error fetching posts:", error.message);
         return;
@@ -299,6 +302,24 @@ const Feed: React.FC = () => {
     console.log("userDetails", userDetails && userDetails[0]);
   });
 
+  const handleDeletePost = async (postId: number) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from("posts")
+        .delete()
+        .eq("post_id", postId);
+      if (deleteError) {
+        console.error("Error deleting post:", deleteError.message);
+        return;
+      }
+      setPosts((prevPosts) =>
+        prevPosts.filter((post) => post.post_id !== postId)
+      );
+    } catch (error: any) {
+      console.error("Error deleting post:", error.message);
+    }
+  };
+
   return (
     <div className="w-full flex items-center justify-center">
       <div className="flex gap-4 md:ml-64 md:p-4 max-w-[500px]  flex-col">
@@ -440,4 +461,4 @@ const Feed: React.FC = () => {
   );
 };
 
-export default Feed;
+export default MyPosts;
