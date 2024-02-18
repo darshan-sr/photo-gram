@@ -16,6 +16,7 @@ import {
 } from "react-icons/fa";
 import { IoPaperPlaneOutline } from "react-icons/io5";
 import TimeAgo from "@/components/TimeAgo";
+import { useRouter } from "next/navigation";
 
 interface Post {
   post_id: number;
@@ -44,10 +45,16 @@ const Feed: React.FC = () => {
   const [commentText, setCommentText] = useState<string>("");
   const [userDetails, setUserDetails] = useState<any>();
 
+  const router = useRouter();
+
   useEffect(() => {
     const getUser = async () => {
       const { data, error } = await supabase.auth.getUser();
       setUser(data.user);
+
+      if (!data.user) {
+        router.push("/auth/login");
+      }
 
       console.log("data", data.user?.id);
 
@@ -259,6 +266,28 @@ const Feed: React.FC = () => {
         return;
       }
 
+      // Fetch banned words
+      const { data: bannedWords, error: bannedWordsError } = await supabase
+        .from("banned_words")
+        .select("word");
+
+      if (bannedWordsError) {
+        console.error("Error fetching banned words:", bannedWordsError.message);
+        return;
+      }
+
+      const bannedWordsList = bannedWords.map((word) => word.word);
+
+      // Check for banned words in comment
+      const containsBannedWord = bannedWordsList.some((word) =>
+        commentText.toLowerCase().includes(word.toLowerCase())
+      );
+
+      if (containsBannedWord) {
+        message.error("Comment contains banned word(s)");
+        return;
+      }
+
       const { data: commentData, error: commentError } = await supabase
         .from("comments")
         .insert([
@@ -269,6 +298,7 @@ const Feed: React.FC = () => {
             username: userDetails[0].username,
           },
         ]);
+
       message.success("Comment Posted");
       if (commentError) {
         console.error("Error adding comment:", commentError.message);
@@ -281,6 +311,7 @@ const Feed: React.FC = () => {
         .select("*")
         .eq("post_id", selectedPostId)
         .order("created_at", { ascending: true });
+
       if (fetchError) {
         console.error("Error fetching comments:", fetchError.message);
         return;
@@ -310,7 +341,7 @@ const Feed: React.FC = () => {
             <div className="flex items-center p-4 ">
               <img
                 src={
-                  "https://ik.imagekit.io/demo/tr:di-medium_cafe_B1iTdD0C.jpg/non_existent_image.jpg"
+                  "https://raw.githubusercontent.com/darshan-sr/edustack-rvitm/main/public/None.jpg?token=GHSAT0AAAAAACJ4DQILACN3WADMUCF432CGZOSL2GA"
                 }
                 alt="User Avatar"
                 className="w-8 h-8 rounded-full mr-2"

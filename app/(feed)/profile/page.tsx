@@ -1,21 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import supabase from "@/utils/supabase";
-
-import { Modal, Button, Input, List, Avatar, message } from "antd";
-import { formatDistanceToNow } from "date-fns";
-
-import {
-  FaBookmark,
-  FaHeart,
-  FaRegBookmark,
-  FaRegComment,
-  FaRegHeart,
-  FaRegPaperPlane,
-  FaRegShareSquare,
-} from "react-icons/fa";
-import { IoPaperPlaneOutline } from "react-icons/io5";
-import TimeAgo from "@/components/TimeAgo";
+import { useRouter } from "next/navigation";
+import { Modal, Input, message } from "antd";
+import { get } from "http";
 import MyPosts from "@/components/MyPosts";
 
 interface Post {
@@ -26,28 +14,26 @@ interface Post {
   posted_at_time: string;
 }
 
-interface Comment {
-  comment_id: number;
-  user_id: string;
-  post_id: number;
-  comment_text: string;
-  username: string;
-  created_at: string;
-}
-
 const Profile: React.FC = () => {
-  const [posts, setPosts] = useState<Post[]>([]);
   const [user, setUser] = useState<any>();
   const [userDetails, setUserDetails] = useState<any>();
   const [followersCount, setFollowersCount] = useState<number>(0);
   const [followingCount, setFollowingCount] = useState<number>(0);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [postsCount, setPostsCount] = useState<number>(0);
 
-  const [tab, setTab] = useState("posts");
+  const router = useRouter();
 
   useEffect(() => {
     const getUser = async () => {
       const { data, error } = await supabase.auth.getUser();
       setUser(data.user);
+
+      if (!data.user) {
+        router.push("/auth/login");
+      }
 
       const { data: userData, error: err } = await supabase
         .from("users")
@@ -56,86 +42,28 @@ const Profile: React.FC = () => {
 
       if (userData && userData[0]) {
         setUserDetails(userData[0]);
+        setEditName(userData[0].name);
+        setEditBio(userData[0].bio);
       }
     };
 
     getUser();
   }, []);
 
-  useEffect(() => {
-    const fetchPosts = async () => {
-      const { data, error } = await supabase
-        .from("posts")
-        .select("*")
-        .eq("user_uid", user?.id);
-      if (error) {
-        console.error("Error fetching posts:", error.message);
-        return;
-      }
+  const handleEditProfile = async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .update({ name: editName, bio: editBio })
+      .eq("id", user?.id);
 
-      const postsWithImages = await Promise.all(
-        data?.map(async (post: Post) => {
-          try {
-            const { data: postDetails, error: userError } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", post.user_uid);
-
-            const { data: imageData, error: imageError } =
-              await supabase.storage.from("images").download(post.photo_url);
-            if (imageError) {
-              console.error("Error downloading image:", imageError.message);
-              return post;
-            }
-            const photoUrl = URL.createObjectURL(imageData);
-
-            // Fetch the number of likes for the post
-            const { data: likesData, error: likesError } = await supabase
-              .from("likes")
-              .select("user_id")
-              .eq("post_id", post.post_id);
-            const likesCount = likesData ? likesData.length : 0;
-
-            const { data: commentsData, error: commentsError } = await supabase
-              .from("comments")
-              .select("*")
-              .eq("post_id", post.post_id);
-            const commentsCount = commentsData ? commentsData.length : 0;
-
-            // Check if the user has liked the post
-            const isLiked =
-              likesData &&
-              likesData.some((like: any) => like.user_id === user?.id);
-
-            // Check if the user has saved the post
-            const { data: savedData, error: savedError } = await supabase
-              .from("saves")
-              .select("save_id")
-              .eq("post_id", post.post_id)
-              .eq("user_id", user?.id);
-            const isSaved = savedData && savedData.length > 0;
-
-            return {
-              ...post,
-              photoUrl,
-              postDetails,
-              likesCount,
-              commentsData,
-              isLiked,
-              isSaved,
-            };
-          } catch (error: any) {
-            console.error("Error downloading image:", error.message);
-            return post;
-          }
-        }) || []
-      );
-
-      setPosts(postsWithImages);
-    };
-
-    fetchPosts();
-  }, [user]);
+    if (error) {
+      message.error("Failed to update profile");
+    } else {
+      message.success("Profile updated successfully");
+      setEditModalVisible(false);
+      setUserDetails({ ...userDetails, name: editName, bio: editBio });
+    }
+  };
 
   const getFollowersCount = async () => {
     const { data, error } = await supabase
@@ -153,9 +81,18 @@ const Profile: React.FC = () => {
     return data?.length || 0;
   };
 
+  const getPostsCount = async () => {
+    const { data, error } = await supabase
+      .from("posts")
+      .select("post_id")
+      .eq("user_uid", user?.id);
+    return data?.length || 0;
+  };
+
   useEffect(() => {
     getFollowersCount().then((count) => setFollowersCount(count));
     getFollowingCount().then((count) => setFollowingCount(count));
+    getPostsCount().then((count) => setPostsCount(count));
   }, [user]);
 
   return (
@@ -165,9 +102,7 @@ const Profile: React.FC = () => {
           <div className="flex flex-col w-full px-4">
             <div className="flex items-center w-[400px] p-4 ">
               <img
-                src={
-                  "https://ik.imagekit.io/demo/tr:di-medium_cafe_B1iTdD0C.jpg/non_existent_image.jpg"
-                }
+                src="https://raw.githubusercontent.com/darshan-sr/edustack-rvitm/main/public/None.jpg?token=GHSAT0AAAAAACJ4DQILACN3WADMUCF432CGZOSL2GA"
                 alt="User Avatar"
                 className="w-20 h-20 rounded-full mr-4"
               />
@@ -175,61 +110,66 @@ const Profile: React.FC = () => {
                 <p className="font-bold">
                   {userDetails ? userDetails.username : "Unknown"}
                 </p>
-                <button className="bg-gray-100 my-2 text-black px-2 py-1 rounded-md">
+                <button
+                  onClick={() => setEditModalVisible(true)}
+                  className="bg-gray-100 my-2 text-black px-2 py-1 rounded-md"
+                >
                   Edit Profile
                 </button>
               </div>
             </div>
             <div className="flex  flex-col  w-full ml-4">
               <p className="font-semibold">
-                {" "}
                 {userDetails ? userDetails.name : "Unknown"}
               </p>
 
               <p className="mr-4">
                 {userDetails ? userDetails.bio : "Unknown"}
               </p>
-            </div>
-            <div className="flex items-center py-6 justify-around w-full ml-4">
-              <p className="mr-4">
-                <span className="font-bold">{posts.length}</span> posts
-              </p>
-              <p className="mr-4">
-                <span className="font-bold">{followersCount}</span> followers
-              </p>
-              <p>
-                <span className="font-bold">{followingCount}</span> following
-              </p>
+              <div className="flex flex-row justify-between my-4">
+                <p className="mr-4">
+                  <span className="font-bold">{postsCount}</span> posts
+                </p>
+
+                <p className="mr-4">
+                  <span className="font-bold">{followersCount}</span> followers
+                </p>
+                <p>
+                  <span className="font-bold">{followingCount}</span> following
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-
       <div>
-        <div className="flex w-full justify-center">
-          <button
-            onClick={() => setTab("posts")}
-            className={`${
-              tab === "posts"
-                ? "border-b-2  border-black"
-                : "border-b-2 border-transparent"
-            }`}
-          >
-            Posts
-          </button>
-          <button
-            onClick={() => setTab("saved")}
-            className={`${
-              tab === "saved"
-                ? "border-b-2 border-black"
-                : "border-b-2 border-transparent"
-            }`}
-          >
-            Saved
-          </button>
-        </div>
+        <MyPosts />
       </div>
-      {tab === "posts" && <MyPosts />}
+
+      <Modal
+        title="Edit Profile"
+        open={editModalVisible}
+        onOk={handleEditProfile}
+        onCancel={() => setEditModalVisible(false)}
+      >
+        <label htmlFor="name" className="">
+          name
+        </label>
+        <Input
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          placeholder="Name"
+          className="mb-4"
+        />
+        <label htmlFor="bio" className="">
+          Bio
+        </label>
+        <Input.TextArea
+          value={editBio}
+          onChange={(e) => setEditBio(e.target.value)}
+          placeholder="Bio"
+        />
+      </Modal>
     </>
   );
 };

@@ -16,7 +16,6 @@ import {
 } from "react-icons/fa";
 import { IoPaperPlaneOutline } from "react-icons/io5";
 import TimeAgo from "@/components/TimeAgo";
-import { useRouter } from "next/navigation";
 
 interface Post {
   post_id: number;
@@ -35,7 +34,14 @@ interface Comment {
   created_at: string;
 }
 
-const MyPosts: React.FC = () => {
+interface SavedPost {
+  save_id: number;
+  user_id: string;
+  post_id: number;
+  created_at: string;
+}
+
+const SavedPosts = () => {
   const [posts, setPosts] = useState<any[]>([]);
   const [user, setUser] = useState<any>();
   const [commentModalVisible, setCommentModalVisible] =
@@ -45,16 +51,12 @@ const MyPosts: React.FC = () => {
   const [commentText, setCommentText] = useState<string>("");
   const [userDetails, setUserDetails] = useState<any>();
 
-  const router = useRouter();
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
 
   useEffect(() => {
     const getUser = async () => {
       const { data, error } = await supabase.auth.getUser();
       setUser(data.user);
-
-      if (!data.user) {
-        router.push("/auth/login");
-      }
 
       console.log("data", data.user?.id);
 
@@ -74,81 +76,41 @@ const MyPosts: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const fetchSavedPosts = async () => {
+      const { data: savedData, error: savedError } = await supabase
+        .from("saves")
+        .select("*")
+        .eq("user_id", user?.id);
+
+      console.log("savedData", savedData);
+
+      if (savedData) {
+        setSavedPosts(savedData);
+      } else {
+        console.error("Error fetching saved posts:", savedError?.message);
+      }
+    };
+
+    fetchSavedPosts();
+  }, []);
+
+  useEffect(() => {
     const fetchPosts = async () => {
-      const { data, error } = await supabase
+      const savedPostIds = savedPosts.map((savedPost) => savedPost.post_id);
+      const { data: postData, error: postError } = await supabase
         .from("posts")
         .select("*")
-        .eq("user_uid", user?.id);
-      if (error) {
-        console.error("Error fetching posts:", error.message);
-        return;
+        .in("post_id", savedPostIds);
+
+      if (postData) {
+        setPosts(postData);
+      } else {
+        console.error("Error fetching posts:", postError?.message);
       }
-
-      console.log("data", data);
-
-      const postsWithImages = await Promise.all(
-        data?.map(async (post: Post) => {
-          try {
-            const { data: postDetails, error: userError } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", post.user_uid);
-            console.log("postDetails", postDetails);
-            const { data: imageData, error: imageError } =
-              await supabase.storage.from("images").download(post.photo_url);
-            if (imageError) {
-              console.error("Error downloading image:", imageError.message);
-              return post;
-            }
-            const photoUrl = URL.createObjectURL(imageData);
-
-            // Fetch the number of likes for the post
-            const { data: likesData, error: likesError } = await supabase
-              .from("likes")
-              .select("user_id")
-              .eq("post_id", post.post_id);
-            const likesCount = likesData ? likesData.length : 0;
-
-            const { data: commentsData, error: commentsError } = await supabase
-              .from("comments")
-              .select("*")
-              .eq("post_id", post.post_id);
-            const commentsCount = commentsData ? commentsData.length : 0;
-
-            // Check if the user has liked the post
-            const isLiked =
-              likesData &&
-              likesData.some((like: any) => like.user_id === user?.id);
-
-            // Check if the user has saved the post
-            const { data: savedData, error: savedError } = await supabase
-              .from("saves")
-              .select("save_id")
-              .eq("post_id", post.post_id)
-              .eq("user_id", user?.id);
-            const isSaved = savedData && savedData.length > 0;
-
-            return {
-              ...post,
-              photoUrl,
-              postDetails,
-              likesCount,
-              commentsData,
-              isLiked,
-              isSaved,
-            };
-          } catch (error: any) {
-            console.error("Error downloading image:", error.message);
-            return post;
-          }
-        }) || []
-      );
-
-      setPosts(postsWithImages);
     };
 
     fetchPosts();
-  }, [user]);
+  }, [savedPosts]);
 
   const handleLike = async (postId: number) => {
     try {
@@ -269,28 +231,6 @@ const MyPosts: React.FC = () => {
         return;
       }
 
-      // Fetch banned words
-      const { data: bannedWords, error: bannedWordsError } = await supabase
-        .from("banned_words")
-        .select("word");
-
-      if (bannedWordsError) {
-        console.error("Error fetching banned words:", bannedWordsError.message);
-        return;
-      }
-
-      const bannedWordsList = bannedWords.map((word) => word.word);
-
-      // Check for banned words in comment
-      const containsBannedWord = bannedWordsList.some((word) =>
-        commentText.toLowerCase().includes(word.toLowerCase())
-      );
-
-      if (containsBannedWord) {
-        message.error("Comment contains banned word(s)");
-        return;
-      }
-
       const { data: commentData, error: commentError } = await supabase
         .from("comments")
         .insert([
@@ -301,7 +241,6 @@ const MyPosts: React.FC = () => {
             username: userDetails[0].username,
           },
         ]);
-
       message.success("Comment Posted");
       if (commentError) {
         console.error("Error adding comment:", commentError.message);
@@ -314,7 +253,6 @@ const MyPosts: React.FC = () => {
         .select("*")
         .eq("post_id", selectedPostId)
         .order("created_at", { ascending: true });
-
       if (fetchError) {
         console.error("Error fetching comments:", fetchError.message);
         return;
@@ -333,9 +271,27 @@ const MyPosts: React.FC = () => {
     console.log("userDetails", userDetails && userDetails[0]);
   });
 
+  const handleDeletePost = async (postId: number) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from("posts")
+        .delete()
+        .eq("post_id", postId);
+      if (deleteError) {
+        console.error("Error deleting post:", deleteError.message);
+        return;
+      }
+      setPosts((prevPosts) =>
+        prevPosts.filter((post) => post.post_id !== postId)
+      );
+    } catch (error: any) {
+      console.error("Error deleting post:", error.message);
+    }
+  };
+
   return (
     <div className="w-full flex items-center justify-center">
-      <div className="flex gap-4 md:ml-64 md:p-4 max-w-[500px] w-[500px]  flex-col">
+      <div className="flex gap-4 md:ml-64 md:p-4 max-w-[500px]  flex-col">
         {posts.map((post) => (
           <div
             key={post.post_id}
@@ -344,7 +300,7 @@ const MyPosts: React.FC = () => {
             <div className="flex items-center p-4 ">
               <img
                 src={
-                  "https://raw.githubusercontent.com/darshan-sr/edustack-rvitm/main/public/None.jpg?token=GHSAT0AAAAAACJ4DQILACN3WADMUCF432CGZOSL2GA"
+                  "https://ik.imagekit.io/demo/tr:di-medium_cafe_B1iTdD0C.jpg/non_existent_image.jpg"
                 }
                 alt="User Avatar"
                 className="w-8 h-8 rounded-full mr-2"
@@ -474,4 +430,4 @@ const MyPosts: React.FC = () => {
   );
 };
 
-export default MyPosts;
+export default SavedPosts;
